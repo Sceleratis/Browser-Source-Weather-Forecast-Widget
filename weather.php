@@ -297,9 +297,35 @@ function fetchUrlOrError($url, $targetW, $targetH, $errorMessage)
 {
     $out = @file_get_contents((string)$url);
     if ($out === false) {
-        renderErrorAndExit($targetW, $targetH, (string)$errorMessage);
+        $parts = [(string)$errorMessage];
+
+        $err = error_get_last();
+        if (is_array($err) && isset($err['message']) && is_string($err['message']) && $err['message'] !== '') {
+            $parts[] = 'Fetch error: ' . $err['message'];
+        }
+
+        if (isset($http_response_header) && is_array($http_response_header) && isset($http_response_header[0])) {
+            $parts[] = 'HTTP: ' . (string)$http_response_header[0];
+        }
+
+        renderErrorAndExit($targetW, $targetH, implode("\n", $parts));
     }
     return $out;
+}
+
+function decodeJsonOrError($json, $targetW, $targetH, $context)
+{
+    $raw = (string)$json;
+    $data = json_decode($raw, true);
+    if (!is_array($data)) {
+        $msg = 'Error: invalid JSON (' . (string)$context . '): ' . json_last_error_msg();
+        $snippet = substr($raw, 0, 600);
+        if ($snippet !== '') {
+            $msg .= "\n\nResponse (first 600 chars):\n" . $snippet;
+        }
+        renderErrorAndExit($targetW, $targetH, $msg);
+    }
+    return $data;
 }
 
 /**
@@ -319,7 +345,7 @@ function validateOpenWeatherOrError($data, $targetW, $targetH)
     $cod = isset($data['cod']) ? (string)$data['cod'] : '';
     if ($cod !== '' && $cod !== '200') {
         $msg = isset($data['message']) ? (string)$data['message'] : 'Unknown OpenWeather error.';
-        renderErrorAndExit($targetW, $targetH, 'Error: ' . $msg);
+        renderErrorAndExit($targetW, $targetH, 'Error: OpenWeather cod=' . $cod . ' message=' . $msg);
     }
 }
 
@@ -609,6 +635,108 @@ function readForecastTemp($item)
 // Derive runtime settings from URL parameters
 // -----------------------------
 
+$DEBUG = parseBoolParam($debugParam) ?? false;
+
+$parsedApiKey = parseApiKeyParam($apiKeyParam);
+if ($parsedApiKey === null) {
+    renderErrorAndExit($TARGET_W, $TARGET_H, 'Error: missing or invalid OpenWeather API key (use apikey=YOUR_KEY).');
+}
+$API_KEY = $parsedApiKey;
+
+$res = parseResolutionParam($resParam);
+if ($res !== null) {
+    $TARGET_W = $res[0];
+    $TARGET_H = $res[1];
+} else {
+    $w = parseIntParam($wParam);
+    $h = parseIntParam($hParam);
+    if ($w !== null && $h !== null) {
+        $TARGET_W = $w;
+        $TARGET_H = $h;
+    }
+}
+
+$SCALE = min((float)$TARGET_W / (float)$BASE_W, (float)$TARGET_H / (float)$BASE_H);
+if ($SCALE <= 0.0) {
+    $SCALE = 1.0;
+}
+
+$MONO = (parseBoolParam($monoParam) ?? false) || (is_string($schemeParam) && strtolower(trim($schemeParam)) === 'mono');
+
+$parsedHourly = parseBoolParam($hourlyParam);
+$SHOW_HOURLY = ($parsedHourly ?? false) || (is_string($modeParam) && strtolower(trim($modeParam)) === 'hourly');
+
+$dailyCount = parseIntParam($dailyCountParam);
+if ($dailyCount !== null) {
+    $DAILY_COUNT = max(3, min(10, $dailyCount));
+}
+
+$hourlyCount = parseIntParam($hourlyCountParam);
+if ($hourlyCount !== null) {
+    $HOURLY_COUNT = max(3, min(8, $hourlyCount));
+}
+
+$hourlyStep = parseIntParam($hourlyStepParam);
+if ($hourlyStep !== null) {
+    $HOURLY_STEP_MINUTES = max(30, min(180, $hourlyStep));
+}
+
+$AUTO_LOC = parseBoolParam($autoLocParam) ?? true;
+
+$labelWasProvided = parseBoolParam($labelParam) !== null;
+$SHOW_LABEL = parseBoolParam($labelParam) ?? false;
+
+$PALETTE = $DEFAULT_PALETTE;
+$PALETTE['bg'] = colorValue($bgParam, $PALETTE['bg']);
+$PALETTE['fg'] = colorValue($fgParam, $PALETTE['fg']);
+$PALETTE['sun'] = colorValue($sunParam, $PALETTE['sun']);
+$PALETTE['sun2'] = colorValue($sun2Param, $PALETTE['sun2']);
+$PALETTE['cloud'] = colorValue($cloudParam, $PALETTE['cloud']);
+$PALETTE['rain'] = colorValue($rainParam, $PALETTE['rain']);
+$PALETTE['moon'] = colorValue($moonParam, $PALETTE['moon']);
+
+$CITY_QUERY = '';
+
+$lat = is_string($latParam) ? trim($latParam) : '';
+$lon = is_string($lonParam) ? trim($lonParam) : '';
+if ($lat !== '' && $lon !== '' && is_numeric($lat) && is_numeric($lon)) {
+    $CITY_QUERY = 'lat=' . rawurlencode($lat) . '&lon=' . rawurlencode($lon);
+} else {
+    $zip = is_string($zipParam) ? trim($zipParam) : '';
+    if ($zip !== '') {
+        $zipCountry = is_string($zipCountryParam) && trim($zipCountryParam) !== '' ? trim($zipCountryParam) : 'US';
+        $CITY_QUERY = 'zip=' . rawurlencode($zip . ',' . $zipCountry);
+    } else {
+        $city = is_string($cityParam) ? trim($cityParam) : '';
+        if ($city !== '') {
+            $state = is_string($stateParam) ? trim($stateParam) : '';
+            $country = is_string($countryParam) && trim($countryParam) !== '' ? trim($countryParam) : 'US';
+            $q = $city;
+            if ($state !== '') {
+                $q .= ',' . $state;
+            }
+            if ($country !== '') {
+                $q .= ',' . $country;
+            }
+            $CITY_QUERY = 'q=' . rawurlencode($q);
+        } else {
+            $cityId = is_string($cityIdParam) ? trim($cityIdParam) : '';
+            if ($cityId !== '' && preg_match('/^\d+$/', $cityId)) {
+                $CITY_QUERY = 'id=' . rawurlencode($cityId);
+            } else {
+                $q = is_string($qParam) ? trim($qParam) : '';
+                if ($q !== '') {
+                    $CITY_QUERY = 'q=' . rawurlencode($q);
+                }
+            }
+        }
+    }
+}
+
+if ($CITY_QUERY === '') {
+    renderErrorAndExit($TARGET_W, $TARGET_H, 'Error: missing location parameters (lat/lon, zip, city, cityid, or q).');
+}
+
 // -----------------------------
 // OpenWeather API fetch
 // -----------------------------
@@ -627,16 +755,37 @@ $forecastJson = fetchUrlOrError(
     'Error: failed to fetch forecast from OpenWeather.'
 );
 
-$current = json_decode($currentJson, true);
-$forecast = json_decode($forecastJson, true);
+$current = decodeJsonOrError($currentJson, $TARGET_W, $TARGET_H, 'current weather');
+$forecast = decodeJsonOrError($forecastJson, $TARGET_W, $TARGET_H, 'forecast');
 
 // OpenWeather response validation
 validateOpenWeatherOrError($current, $TARGET_W, $TARGET_H);
 validateOpenWeatherOrError($forecast, $TARGET_W, $TARGET_H);
 
+$tzOffset = isset($current['timezone']) ? (int)$current['timezone'] : 0;
+$nowUtc = time();
+$nowLocal = $nowUtc + $tzOffset;
+$todayKey = gmdate('D', $nowLocal);
+
+$todayPrecipMm = 0.0;
+$todayRainMm = 0.0;
+$todaySnowMm = 0.0;
+$todayPopMax = 0.0;
+$nowPopPct = null;
+$nowIcon = null;
+$nowRainMm3h = 0.0;
+$nowSnowMm3h = 0.0;
+
+if (!$labelWasProvided && (parseBoolParam($autoLocParam) ?? true) && (is_string($current['name'] ?? null) && trim((string)$current['name']) !== '')) {
+    $SHOW_LABEL = true;
+}
+
 if (!isset($current['weather'][0]['icon']) || !isset($current['main']['temp']) || !isset($forecast['list']) || !is_array($forecast['list'])) {
     renderErrorAndExit($TARGET_W, $TARGET_H, 'Error: unexpected response from OpenWeather (missing fields).');
 }
+
+$mainIcon = (string)$current['weather'][0]['icon'];
+$mainIconClass = $MONO ? 'icon icon-main--mono' : 'icon icon-main--color';
 
 // Current precipitation (best-effort)
 $mmToIn = 1 / 25.4;
@@ -1061,6 +1210,21 @@ if ($DEBUG) {
             </div>
         </div>
     </div>
+
+    <?php
+    $refreshSeconds = filter_input(INPUT_GET, 'refresh', FILTER_VALIDATE_INT, [
+        'options' => [
+            'min_range' => 1,
+        ],
+    ]);
+    ?>
+    <?php if ($refreshSeconds !== null && $refreshSeconds !== false): ?>
+        <script>
+            window.setTimeout(function () {
+                window.location.reload();
+            }, <?= (int)$refreshSeconds ?> * 1000);
+        </script>
+    <?php endif; ?>
 </body>
 
 </html>
