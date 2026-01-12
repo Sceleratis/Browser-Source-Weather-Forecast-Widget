@@ -1,0 +1,104 @@
+name: FTP Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - weather.php
+      - svg/**
+      - README.md
+      - .github/workflows/ftp-deploy.yml
+  workflow_dispatch:
+    inputs:
+      remote_dir:
+        description: Remote directory to deploy into (overrides repo variable FTP_REMOTE_DIR)
+        required: false
+        default: ""
+      include:
+        description: Space-separated file globs to deploy (overrides repo variable FTP_DEPLOY_INCLUDE)
+        required: false
+        default: "weather.php svg/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build deploy bundle
+        shell: bash
+        env:
+          FTP_DEPLOY_INCLUDE: ${{ vars.FTP_DEPLOY_INCLUDE }}
+          INPUT_INCLUDE: ${{ github.event.inputs.include }}
+        run: |
+          set -euo pipefail
+
+          INCLUDE="${INPUT_INCLUDE:-}"
+          if [ -z "$INCLUDE" ]; then
+            INCLUDE="${FTP_DEPLOY_INCLUDE:-}"
+          fi
+          if [ -z "$INCLUDE" ]; then
+            INCLUDE="weather.php svg/**"
+          fi
+
+          echo "Using include patterns: $INCLUDE"
+
+          DEPLOY_DIR="deploy_bundle"
+          rm -rf "$DEPLOY_DIR"
+          mkdir -p "$DEPLOY_DIR"
+
+          shopt -s globstar nullglob
+
+          for pattern in $INCLUDE; do
+            matches=( $pattern )
+            if [ ${#matches[@]} -eq 0 ]; then
+              echo "No matches for pattern: $pattern"
+              continue
+            fi
+
+            for p in "${matches[@]}"; do
+              if [ -e "$p" ]; then
+                cp --parents -R "$p" "$DEPLOY_DIR"/
+              fi
+            done
+          done
+
+          echo "Deploy bundle contents:"
+          find "$DEPLOY_DIR" -type f -maxdepth 5 -print
+
+      - name: Upload via FTP (overwrite)
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_REMOTE_DIR: ${{ vars.FTP_REMOTE_DIR }}
+          INPUT_REMOTE_DIR: ${{ github.event.inputs.remote_dir }}
+        run: |
+          set -euo pipefail
+
+          REMOTE_DIR="${INPUT_REMOTE_DIR:-}"
+          if [ -z "$REMOTE_DIR" ]; then
+            REMOTE_DIR="${FTP_REMOTE_DIR:-}"
+          fi
+          if [ -z "$REMOTE_DIR" ]; then
+            REMOTE_DIR="/public_html/widgets/"
+          fi
+
+          sudo apt-get update
+          sudo apt-get install -y lftp
+
+          echo "Deploying to: ftp://$FTP_HOST$REMOTE_DIR"
+
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_HOST" <<EOF
+          set ftp:ssl-allow no
+          set net:max-retries 2
+          set net:timeout 20
+          set net:persist-retries 0
+          mkdir -p "$REMOTE_DIR"
+          mirror -R --overwrite --verbose deploy_bundle "$REMOTE_DIR"
+          bye
+          EOF

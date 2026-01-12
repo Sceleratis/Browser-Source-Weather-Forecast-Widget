@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="100%" height="100%" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="--cloud:#FFFFFF;{{CSS_VARS}}">
+  <g fill="var(--cloud, #FFFFFF)" transform="matrix(1, 0, 0, 1, 0.041788, 5.491618)">
+    <path d="M16 44h32a11 11 0 000-22 15 15 0 00-29-3A10 10 0 0016 44z"/>
+  </g>
+</svg>
