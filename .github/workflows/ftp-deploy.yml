@@ -100,7 +100,7 @@ jobs:
 
           VERIFY="${FTP_TLS_VERIFY:-}"
           if [ -z "$VERIFY" ]; then
-            VERIFY="yes"
+            VERIFY="no"
           fi
 
           echo "Deploying to: ftp://$FTP_HOST:$PORT$REMOTE_DIR (FTPS enabled)"
@@ -110,6 +110,7 @@ jobs:
           set ftp:ssl-force yes
           set ftp:ssl-protect-data yes
           set ssl:verify-certificate $VERIFY
+          set ssl:check-hostname no
           set net:max-retries 2
           set net:timeout 20
           set net:persist-retries 0
