@@ -76,6 +76,8 @@ jobs:
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
           FTP_REMOTE_DIR: ${{ vars.FTP_REMOTE_DIR }}
+          FTP_PORT: ${{ vars.FTP_PORT }}
+          FTP_TLS_VERIFY: ${{ vars.FTP_TLS_VERIFY }}
           INPUT_REMOTE_DIR: ${{ github.event.inputs.remote_dir }}
         run: |
           set -euo pipefail
@@ -91,10 +93,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lftp
 
-          echo "Deploying to: ftp://$FTP_HOST$REMOTE_DIR"
+          PORT="${FTP_PORT:-}"
+          if [ -z "$PORT" ]; then
+            PORT="21"
+          fi
 
-          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_HOST" <<EOF
-          set ftp:ssl-allow no
+          VERIFY="${FTP_TLS_VERIFY:-}"
+          if [ -z "$VERIFY" ]; then
+            VERIFY="yes"
+          fi
+
+          echo "Deploying to: ftp://$FTP_HOST:$PORT$REMOTE_DIR (FTPS enabled)"
+
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "ftp://$FTP_HOST:$PORT" <<EOF
+          set ftp:ssl-allow yes
+          set ftp:ssl-force yes
+          set ftp:ssl-protect-data yes
+          set ssl:verify-certificate $VERIFY
           set net:max-retries 2
           set net:timeout 20
           set net:persist-retries 0
