@@ -483,6 +483,9 @@ function precipIconSvg($type, $size)
     if ($t === 'mix') {
         return renderSvgTemplate('svg/precip_mix.svg', ['css_vars' => $cssVars]);
     }
+    if ($t === 'none') {
+        return renderSvgTemplate('svg/weather_03.svg', ['css_vars' => $cssVars]);
+    }
     return '';
 }
 
@@ -800,6 +803,12 @@ foreach ($forecast['list'] as $item) {
         $nowIcon = readForecastIcon($item);
         $nowRainMm3h = readForecastPrecipMm3h($item, 'rain');
         $nowSnowMm3h = readForecastPrecipMm3h($item, 'snow');
+    }
+
+    $localTs = readForecastDt($item) + $tzOffset;
+    $dayKey = gmdate('D', $localTs);
+    if ($dayKey !== $todayKey) {
+        continue;
     }
 
     $rain3h = readForecastPrecipMm3h($item, 'rain');
@@ -1135,6 +1144,11 @@ if ($DEBUG) {
             height: 18px;
         }
 
+        .precip-inline--today svg {
+            width: 18px;
+            height: 18px;
+        }
+
         .corner-label {
             position: absolute;
             top: 10px;
@@ -1180,7 +1194,7 @@ if ($DEBUG) {
                         <span>Wind <?= round($current['wind']['speed']) ?> mph</span>
                     </div>
                     <div class="detail-line">
-                        <span class="precip-inline">
+                        <span class="precip-inline precip-inline--today">
                             <?= precipIconSvg($todayPrecipType, 18) ?>
                             <span><?= fmtIn($todayPrecipIn) ?>in <?= fmtPop($todayPopPct) ?>% (now <?= fmtPop($nowPopPct) ?>%)</span>
                         </span>
