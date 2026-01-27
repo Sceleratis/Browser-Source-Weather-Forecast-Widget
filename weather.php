@@ -843,14 +843,16 @@ if (!$SHOW_HOURLY) {
             continue;
         }
 
-        $precipMm = readForecastPrecipMm3h($item, 'rain') + readForecastPrecipMm3h($item, 'snow');
+        $rain3h = readForecastPrecipMm3h($item, 'rain');
+        $snow3h = readForecastPrecipMm3h($item, 'snow');
+        $precipMm = $rain3h + $snow3h;
         $pop = readForecastPop($item);
 
         // Choose a representative icon/description near local midday.
         $secondsIntoDay = (int)gmdate('H', $localTs) * 3600 + (int)gmdate('i', $localTs) * 60;
         $dist = abs($secondsIntoDay - $middayTarget);
 
-        if (!isset($days[$dayKey]) || $dist < $days[$dayKey]['_dist']) {
+        if (!isset($days[$dayKey])) {
             $icon = readForecastIcon($item);
             $days[$dayKey] = [
                 'temp' => round(readForecastTemp($item)),
@@ -862,11 +864,17 @@ if (!$SHOW_HOURLY) {
                 'snowMm' => 0.0,
                 'popMax' => 0.0,
             ];
+        } elseif ($dist < $days[$dayKey]['_dist']) {
+            $icon = readForecastIcon($item);
+            $days[$dayKey]['temp'] = round(readForecastTemp($item));
+            $days[$dayKey]['desc'] = readForecastDescription($item);
+            $days[$dayKey]['icon'] = $icon !== null ? $icon : '';
+            $days[$dayKey]['_dist'] = $dist;
         }
 
         $days[$dayKey]['precipMm'] += $precipMm;
-        $days[$dayKey]['rainMm'] += readForecastPrecipMm3h($item, 'rain');
-        $days[$dayKey]['snowMm'] += readForecastPrecipMm3h($item, 'snow');
+        $days[$dayKey]['rainMm'] += $rain3h;
+        $days[$dayKey]['snowMm'] += $snow3h;
         if ($pop > $days[$dayKey]['popMax']) {
             $days[$dayKey]['popMax'] = $pop;
         }
